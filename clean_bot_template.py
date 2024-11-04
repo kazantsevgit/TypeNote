@@ -1,7 +1,7 @@
 import os
 
-from telegram import Update, BotCommand
-from telegram.ext import (
+from telegram import Update, BotCommand # type: ignore
+from telegram.ext import ( # type: ignore
     Application,
     CommandHandler,
     ContextTypes,

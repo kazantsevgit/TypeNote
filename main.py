@@ -29,160 +29,130 @@ from telegram.ext import (
     filters,
 )
 
-# Enable logging
+
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
 )
-# set higher logging level for httpx to avoid all GET and POST requests being logged
-logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
-CHOOSING, TYPING_REPLY, TYPING_CHOICE = range(3)
+# Словарь для хранения заметок
+notes = {}
 
-reply_keyboard = [
-    ["Age", "Favourite colour"],
-    ["Number of siblings", "Something else..."],
-    ["Done"],
-]
-markup = ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
+# Команда /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(
+        "Привет! Я бот для заметок. Вы можете добавлять, удалять и просматривать заметки.\n\n"
+        "Команды:\n"
+        "/add <категория> <текст заметки> - добавить заметку\n"
+        "/delete <категория> <номер заметки> - удалить заметку\n"
+        "/view <категория> - просмотреть заметки в категории\n"
+        "/view_all - просмотреть все заметки"
+    )
 
+# Команда /add для добавления заметки
+async def add_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if len(context.args) < 2:
+        notes['Без категории'] = context.args[0]
+        await update.message.reply_text(f"Заметка добавлена в категорию 'Без_категории'.")
+        return
 
-def facts_to_str(user_data: Dict[str, str]) -> str:
-    """Helper function for formatting the gathered user info."""
-    facts = [f"{key} - {value}" for key, value in user_data.items()]
-    return "\n".join(facts).join(["\n", "\n"])
+    category = context.args[0]
+    note_text = ' '.join(context.args[1:])
 
+    if category not in notes:
+        notes[category] = []
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start the conversation, display any stored data and ask user for input."""
-    user = update.message.from_user
-    logger.info(f"User {user.full_name} started app.")
+    notes[category].append(note_text)
+    await update.message.reply_text(f"Заметка добавлена в категорию '{category}'.")
+
+# Команда /delete для удаления заметки
+async def delete_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if len(context.args) < 2:
+        await update.message.reply_text("Использование: /delete <категория> <номер заметки>")
+        return
+
+    category = context.args[0]
+    try:
+        note_index = int(context.args[1]) - 1
+    except ValueError:
+        await update.message.reply_text("Номер заметки должен быть числом.")
+        return
+
+    if category in notes and 0 <= note_index < len(notes[category]):
+        deleted_note = notes[category].pop(note_index)
+        await update.message.reply_text(f"Заметка удалена из категории '{category}': {deleted_note}")
+    else:
+        await update.message.reply_text("Заметка не найдена. Проверьте категорию и номер заметки.")
+
+# Команда /view для просмотра заметок в одной категории
+async def view_notes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if len(context.args) < 1:
+        await update.message.reply_text("Использование: /view <категория>")
+        return
+
+    category = context.args[0]
+    if category in notes and notes[category]:
+        message = f"Заметки в категории '{category}':\n"
+        for i, note in enumerate(notes[category], start=1):
+            message += f"{i}. {note}\n"
+    else:
+        message = f"В категории '{category}' пока нет заметок."
     
-    reply_text = "Hi! My name is Doctor Botter."
-    if context.user_data:
-        reply_text += (
-            f" You already told me your {', '.join(context.user_data.keys())}. Why don't you "
-            "tell me something more about yourself? Or change anything I already know."
-        )
-    else:
-        reply_text += (
-            " I will hold a more complex conversation with you. Why don't you tell me "
-            "something about yourself?"
-        )
-    await update.message.reply_text(reply_text, reply_markup=markup)
+    await update.message.reply_text(message)
 
-    return CHOOSING
+# Команда /view_all для просмотра всех заметок
+async def view_all_notes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not notes:
+        await update.message.reply_text("Заметок пока нет.")
+        return
 
+    message = "Все заметки:\n"
+    for category, category_notes in notes.items():
+        message += f"\nКатегория '{category}':\n"
+        for i, note in enumerate(category_notes, start=1):
+            message += f"{i}. {note}\n"
+    
+    await update.message.reply_text(message)
+"""
+async def view_categories(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not notes:
+        await update.message.reply_text("Заметок пока нет.")
+        return
 
-async def regular_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Ask the user for info about the selected predefined choice."""
-    text = update.message.text.lower()
-    context.user_data["choice"] = text
-    if context.user_data.get(text):
-        reply_text = (
-            f"Your {text}? I already know the following about that: {context.user_data[text]}"
-        )
-    else:
-        reply_text = f"Your {text}? Yes, I would love to hear about that!"
-    await update.message.reply_text(reply_text)
-
-    return TYPING_REPLY
-
-
-async def custom_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Ask the user for a description of a custom category."""
-    await update.message.reply_text(
-        'Alright, please send me the category first, for example "Most impressive skill"'
-    )
-
-    return TYPING_CHOICE
-
-
-async def received_information(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Store info provided by user and ask for the next category."""
-    text = update.message.text
-    category = context.user_data["choice"]
-    context.user_data[category] = text.lower()
-    del context.user_data["choice"]
-
-    await update.message.reply_text(
-        "Neat! Just so you know, this is what you already told me:"
-        f"{facts_to_str(context.user_data)}"
-        "You can tell me more, or change your opinion on something.",
-        reply_markup=markup,
-    )
-
-    return CHOOSING
-
-
-async def show_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Display the gathered info."""
-    await update.message.reply_text(
-        f"This is what you already told me: {facts_to_str(context.user_data)}"
-    )
-
-
-async def done(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Display the gathered info and end the conversation."""
-    if "choice" in context.user_data:
-        del context.user_data["choice"]
-
-    await update.message.reply_text(
-        f"I learned these facts about you: {facts_to_str(context.user_data)}Until next time!",
-        reply_markup=ReplyKeyboardRemove(),
-    )
-    return ConversationHandler.END
-
-# Функция для регистрации команд в BotFather
+    message = "Все категории:\n"
+    for category, category_notes in notes.keys():
+        message += f"\n{category}'\n"
+    
+    await update.message.reply_text(message)
+"""
 async def post_init(application: Application) -> None:
     bot_commands = [
         BotCommand("start", "Начало работы с ботом"),
-        # BotCommand("cancel", "Отменить текущую операцию")
+        BotCommand("add", 'Добавь заметку'),
+        BotCommand('delete','Удали заметку'),
+        BotCommand('view', 'Покажи заметки в данной категории'),
+        BotCommand('view_all', 'Покажи все, что есть!')
+        #BotCommand('categories', 'А какие категории вообще есть.')
     ]
     await application.bot.set_my_commands(bot_commands)
 
-def main() -> None:
-    """Run the bot."""
-    # Create the Application and pass it your bot's token.
+# Основной код для запуска бота
+def main():
     persistence = PicklePersistence(filepath="data/data", single_file=False)
     application = Application.builder().token(os.getenv("BOT_TOKEN")).persistence(persistence).post_init(post_init).build()
 
-    # Add conversation handler with the states CHOOSING, TYPING_CHOICE and TYPING_REPLY
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            CHOOSING: [
-                MessageHandler(
-                    filters.Regex("^(Age|Favourite colour|Number of siblings)$"), regular_choice
-                ),
-                MessageHandler(filters.Regex("^Something else...$"), custom_choice),
-            ],
-            TYPING_CHOICE: [
-                MessageHandler(
-                    filters.TEXT & ~(filters.COMMAND | filters.Regex("^Done$")), regular_choice
-                )
-            ],
-            TYPING_REPLY: [
-                MessageHandler(
-                    filters.TEXT & ~(filters.COMMAND | filters.Regex("^Done$")),
-                    received_information,
-                )
-            ],
-        },
-        fallbacks=[MessageHandler(filters.Regex("^Done$"), done)],
-        name="my_conversation",
-        persistent=True,
-    )
+    # Регистрация обработчиков команд
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("add", add_note))
+    application.add_handler(CommandHandler("delete", delete_note))
+    application.add_handler(CommandHandler("view", view_notes))
+    application.add_handler(CommandHandler("view_all", view_all_notes))
+    #application.add_handler(CommandHandler("categories", view_categories))
 
-    application.add_handler(conv_handler)
+    # Запуск бота
+    application.run_polling()
 
-    show_data_handler = CommandHandler("show_data", show_data)
-    application.add_handler(show_data_handler)
-
-    # Run the bot until the user presses Ctrl-C
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
