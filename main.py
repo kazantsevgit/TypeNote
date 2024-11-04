@@ -54,8 +54,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 # Команда /add для добавления заметки
 async def add_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if len(context.args) < 2:
-        notes['Без категории'] = context.args[0]
-        await update.message.reply_text(f"Заметка добавлена в категорию 'Без_категории'.")
+        notes['-'] = context.args[0]
+        await update.message.reply_text(f"Заметка добавлена в категорию '-'.")
         return
 
     category = context.args[0]
